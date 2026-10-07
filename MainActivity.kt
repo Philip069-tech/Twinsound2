@@ -8,18 +8,22 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import android.widget.*
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
+
     private lateinit var audioManager: AudioManager
     private lateinit var status: TextView
     private lateinit var devices: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
 
         val root = LinearLayout(this).apply {
@@ -27,17 +31,30 @@ class MainActivity : ComponentActivity() {
             setPadding(40, 40, 40, 40)
         }
 
-        val title = TextView(this).apply { text = "TwinSound"; textSize = 30f }
-        status = TextView(this).apply { textSize = 17f; setPadding(0, 12, 0, 18) }
-        devices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val title = TextView(this).apply {
+            text = "TwinSound"
+            textSize = 30f
+        }
+
+        status = TextView(this).apply {
+            text = "Starting TwinSound..."
+            textSize = 17f
+            setPadding(0, 12, 0, 18)
+        }
+
+        devices = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
 
         val refresh = Button(this).apply {
             text = "Scan for audio outputs"
-            setOnClickListener { scan() }
+            setOnClickListener {
+                scan()
+            }
         }
 
-        val system = Button(this).apply {
-            text = "Open Android audio / Bluetooth settings"
+        val bluetooth = Button(this).apply {
+            text = "Open Bluetooth settings"
             setOnClickListener {
                 startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
             }
@@ -47,76 +64,168 @@ class MainActivity : ComponentActivity() {
         root.addView(status)
         root.addView(devices)
         root.addView(refresh)
-        root.addView(system)
+        root.addView(bluetooth)
+
         setContentView(root)
 
-        requestPermissionsIfNeeded()
-        scan()
+        requestBluetoothPermission()
     }
 
-    private fun requestPermissionsIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 31 &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN),
-                100
-            )
+    private fun requestBluetoothPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+
+            val connectGranted =
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+
+            val scanGranted =
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.BLUETOOTH_SCAN
+                ) == PackageManager.PERMISSION_GRANTED
+
+            if (connectGranted && scanGranted) {
+                scan()
+            } else {
+                status.text = "Bluetooth permission is required."
+
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(
+                        Manifest.permission.BLUETOOTH_CONNECT,
+                        Manifest.permission.BLUETOOTH_SCAN
+                    ),
+                    100
+                )
+            }
+
+        } else {
+            scan()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(
+            requestCode,
+            permissions,
+            grantResults
+        )
+
+        if (requestCode == 100) {
+
+            val granted = grantResults.isNotEmpty() &&
+                    grantResults.all {
+                        it == PackageManager.PERMISSION_GRANTED
+                    }
+
+            if (granted) {
+                scan()
+            } else {
+                status.text =
+                    "Bluetooth permission was denied. Please allow it in Android settings."
+            }
         }
     }
 
     private fun scan() {
-        devices.removeAllViews()
-        val outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        try {
+            devices.removeAllViews()
 
-        val bluetooth = outputs.filter {
-            it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
-            (Build.VERSION.SDK_INT >= 31 && (
-                it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-                it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-                it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST
-            ))
-        }
+            val outputs =
+                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
 
-        val le = bluetooth.filter {
-            Build.VERSION.SDK_INT >= 31 &&
-            (it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
-             it.type == AudioDeviceInfo.TYPE_BLE_SPEAKER ||
-             it.type == AudioDeviceInfo.TYPE_BLE_BROADCAST)
-        }
+            val bluetooth = outputs.filter { device ->
 
-        status.text = when {
-            bluetooth.size >= 2 && le.size >= 2 ->
-                "✓ Two Bluetooth outputs detected. LE Audio appears available; your phone/system may be able to synchronize them."
-            bluetooth.size >= 2 ->
-                "✓ Two Bluetooth outputs detected. Automatic simultaneous A2DP playback depends on your phone manufacturer/system."
-            bluetooth.size == 1 ->
-                "1 Bluetooth audio output detected. Connect the second speaker first."
-            else ->
-                "No Bluetooth audio outputs are exposed to the app. Connect your speakers in Android settings."
-        }
+                when (device.type) {
 
-        bluetooth.forEachIndexed { index, d ->
-            val kind = when (d.type) {
-                AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth A2DP"
-                AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth LE Audio"
-                AudioDeviceInfo.TYPE_BLE_SPEAKER -> "Bluetooth LE speaker"
-                AudioDeviceInfo.TYPE_BLE_BROADCAST -> "Bluetooth LE broadcast"
-                else -> "Bluetooth"
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
+
+                    AudioDeviceInfo.TYPE_BLE_HEADSET -> true
+
+                    AudioDeviceInfo.TYPE_BLE_SPEAKER -> true
+
+                    AudioDeviceInfo.TYPE_BLE_BROADCAST -> true
+
+                    else -> false
+                }
             }
-            devices.addView(TextView(this).apply {
-                text = "🔊 ${index + 1}. ${d.productName ?: "Unknown speaker"}\n   $kind"
-                textSize = 16f
-                setPadding(0, 10, 0, 10)
-            })
-        })
 
-        if (bluetooth.size >= 2) {
-            val hint = TextView(this).apply {
-                text = "\nNext: if your phone exposes a multi-output/group route, Android's system output switcher is the component that actually controls it. TwinSound deliberately does not fake a second route when Android doesn't provide one."
-                textSize = 14f
+            status.text = when {
+                bluetooth.size >= 2 ->
+                    "✓ ${bluetooth.size} Bluetooth audio outputs detected."
+
+                bluetooth.size == 1 ->
+                    "1 Bluetooth audio output detected. Connect another speaker."
+
+                else ->
+                    "No Bluetooth audio outputs detected."
             }
-            devices.addView(hint)
+
+            bluetooth.forEachIndexed { index, device ->
+
+                val kind = when (device.type) {
+
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ->
+                        "Bluetooth A2DP"
+
+                    AudioDeviceInfo.TYPE_BLE_HEADSET ->
+                        "Bluetooth LE Audio"
+
+                    AudioDeviceInfo.TYPE_BLE_SPEAKER ->
+                        "Bluetooth LE speaker"
+
+                    AudioDeviceInfo.TYPE_BLE_BROADCAST ->
+                        "Bluetooth LE broadcast"
+
+                    else ->
+                        "Bluetooth"
+                }
+
+                val name = try {
+                    device.productName?.toString()
+                        ?: "Unknown speaker"
+                } catch (e: SecurityException) {
+                    "Bluetooth device"
+                }
+
+                devices.addView(
+                    TextView(this).apply {
+                        text = "🔊 ${index + 1}. $name\n   $kind"
+                        textSize = 16f
+                        setPadding(0, 10, 0, 10)
+                    }
+                )
+            }
+
+            if (bluetooth.size >= 2) {
+                devices.addView(
+                    TextView(this).apply {
+                        text =
+                            "\nTwo Bluetooth outputs are visible. " +
+                            "TwinSound can now check what simultaneous " +
+                            "audio routing your Pixel supports."
+
+                        textSize = 14f
+                    }
+                )
+            }
+
+        } catch (e: SecurityException) {
+
+            status.text =
+                "Bluetooth permission is needed. Please allow it and try again."
+
+        } catch (e: Exception) {
+
+            status.text =
+                "TwinSound couldn't scan the audio devices."
+
         }
     }
 }
