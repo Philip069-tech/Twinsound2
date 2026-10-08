@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestBluetoothPermission() {
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
 
             val connectGranted =
@@ -119,79 +120,82 @@ class MainActivity : ComponentActivity() {
 
         if (requestCode == 100) {
 
-            val granted = grantResults.isNotEmpty() &&
-                    grantResults.all {
-                        it == PackageManager.PERMISSION_GRANTED
-                    }
+            val granted =
+                grantResults.isNotEmpty() &&
+                grantResults.all {
+                    it == PackageManager.PERMISSION_GRANTED
+                }
 
             if (granted) {
                 scan()
             } else {
                 status.text =
-                    "Bluetooth permission was denied. Please allow it in Android settings."
+                    "Bluetooth permission was denied."
             }
         }
     }
 
     private fun scan() {
+
         try {
+
             devices.removeAllViews()
 
             val outputs =
-                audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                audioManager.getDevices(
+                    AudioManager.GET_DEVICES_OUTPUTS
+                )
 
-            val bluetooth = outputs.filter { device ->
+            val bluetoothDevices = outputs.filter { device ->
 
-                when (device.type) {
-
-                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
-
-                    AudioDeviceInfo.TYPE_BLE_HEADSET -> true
-
-                    AudioDeviceInfo.TYPE_BLE_SPEAKER -> true
-
-                    AudioDeviceInfo.TYPE_BLE_BROADCAST -> true
-
-                    else -> false
-                }
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    (
+                        device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                        device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+                    )
+                )
             }
 
             status.text = when {
-                bluetooth.size >= 2 ->
-                    "✓ ${bluetooth.size} Bluetooth audio outputs detected."
 
-                bluetooth.size == 1 ->
-                    "1 Bluetooth audio output detected. Connect another speaker."
+                bluetoothDevices.size >= 2 ->
+                    "✓ ${bluetoothDevices.size} Bluetooth audio outputs detected."
+
+                bluetoothDevices.size == 1 ->
+                    "1 Bluetooth audio output detected."
 
                 else ->
                     "No Bluetooth audio outputs detected."
             }
 
-            bluetooth.forEachIndexed { index, device ->
-
-                val kind = when (device.type) {
-
-                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ->
-                        "Bluetooth A2DP"
-
-                    AudioDeviceInfo.TYPE_BLE_HEADSET ->
-                        "Bluetooth LE Audio"
-
-                    AudioDeviceInfo.TYPE_BLE_SPEAKER ->
-                        "Bluetooth LE speaker"
-
-                    AudioDeviceInfo.TYPE_BLE_BROADCAST ->
-                        "Bluetooth LE broadcast"
-
-                    else ->
-                        "Bluetooth"
-                }
+            bluetoothDevices.forEachIndexed { index, device ->
 
                 val name = try {
                     device.productName?.toString()
                         ?: "Unknown speaker"
                 } catch (e: SecurityException) {
                     "Bluetooth device"
+                }
+
+                val kind = when (device.type) {
+
+                    AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ->
+                        "Bluetooth A2DP"
+
+                    AudioDeviceInfo.TYPE_BLUETOOTH_SCO ->
+                        "Bluetooth SCO"
+
+                    AudioDeviceInfo.TYPE_BLE_HEADSET ->
+                        "Bluetooth LE headset"
+
+                    AudioDeviceInfo.TYPE_BLE_SPEAKER ->
+                        "Bluetooth LE speaker"
+
+                    else ->
+                        "Bluetooth audio"
                 }
 
                 devices.addView(
@@ -203,23 +207,10 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            if (bluetooth.size >= 2) {
-                devices.addView(
-                    TextView(this).apply {
-                        text =
-                            "\nTwo Bluetooth outputs are visible. " +
-                            "TwinSound can now check what simultaneous " +
-                            "audio routing your Pixel supports."
-
-                        textSize = 14f
-                    }
-                )
-            }
-
         } catch (e: SecurityException) {
 
             status.text =
-                "Bluetooth permission is needed. Please allow it and try again."
+                "Bluetooth permission is needed."
 
         } catch (e: Exception) {
 
